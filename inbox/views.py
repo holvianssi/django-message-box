@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from rest_framework import generics
+from .service import get_inbox_service
 from .models import Inbox
 
 
@@ -23,10 +24,7 @@ class ReceiveMessageSerializer(serializers.ModelSerializer):
         )
 
     def create(self, validated_data):
-        existing = Inbox.objects.filter(uuid=validated_data['uuid']).first()
-        return (
-            existing or super(ReceiveMessageSerializer, self).create(validated_data)
-        )
+        return get_inbox_service().handle_message(validated_data)
 
 
 class ReceiveMessageView(generics.CreateAPIView):

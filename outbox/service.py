@@ -8,27 +8,29 @@ class OutboxService(object):
     def __init__(self):
         self.config = {}
 
-    def configure(self, message_type, transport):
+    def register_transport(self, message_type, transport):
         self.config[message_type] = transport
 
     def create_message(self, message_source, message_type, payload):
+        from outbox.tasks import async_send
         message = Outbox.objects.create(
             message_source=message_source, message_type=message_type,
             payload=payload)
-        connection.on_commit(lambda: self.send(message))
+        connection.on_commit(
+            lambda: async_send.delay(outbox_uuid=message.uuid))
 
     def send(self, message, force=False):
-        if not force:
-            if message.delivered_at:
-                raise Exception("This message has been already delivered")
+        if not force and message.delivered_at:
+            raise Exception("This message has been already delivered")
         transport = self.get_transport(message.message_type)
-        message.set_try()
         try:
             transport.send(message)
-        except:
+        except Exception:
             logger.exception(
                 "Error in transport.send() for message %s",
                 message.uuid)
+        if message.delivered_at is None:
+            transport.on_failure(message)
 
     def get_transport(self, message_type):
         return self.config[message_type]

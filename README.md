@@ -4,19 +4,41 @@ Django Message Box
 This project implements Inbox and Outbox models for reliable messaging
 with Django.
 
-The idea is that the sending side writes a message to database inside
-the same database transaction where the event causing the message is
-handled. Immediately after send there's an attempt to deliver the
-message. If the attempt fails, there will be more attempts with
-exponential backoff.
+The full list of changes to use the Outbox model with HttpTransport are:
 
-Outbox model
------------- 
+  1) Include "outbox" in your INSTALLED_APPS, run migrations
+  2) Pick one of your existing apps, in ready() function register a transport
+     for a message type you want to handle.
+  3) Configure a cron job or celery task for resending messages.
+  4) Start creating messages!
+
+To use the Inbox model with HttpTransport you will need to do the following
+changes:
+
+  1) Include "inbox" in your INSTALLED_APPS, run migrations
+  2) Include inbox.urls in your urls.conf
+  3) Add a handler using inbox service .register_handler() method.
+     The handler is a callable accepting message as sole argument.
+
+The way the Outbox model works is that the message is saved to the database when
+create_message() is called. When the message has been premanently persisted to
+the DB, a transport configured for the message will deliver the message to
+the wanted recipient. In case there's failures retry will happen automatically.
+Finally, Inbox will guarantee one message is received at most once.
+
+Example changes in commits https://github.com/holvi/vault/commit/a6d461f12bcc5ae6d80c165998ba5a062d0238fc
+and https://github.com/holvi/lexoffice/commit/8f1b4db1fb75f63bdf8611490a24e1a761387cb4
+
+Outbox in detail
+----------------
 
 First, you'll need to configure a transport for your messages in app
 ready() handlers. A typical way to configure an Outbox transport is:
-    Outbox.configure(
-        'outbound_sct_payment',
+
+    from outbox.service import get_outbox_service
+    service = get_outbox_service()
+    service.register_transport(
+        message_type='outbound_sct_payment',
         transport=HttpTransportTransport(
             to='https://receiver.com/api/inbox',
         )
@@ -24,44 +46,46 @@ ready() handlers. A typical way to configure an Outbox transport is:
 
 Now, to write and send a reliable message:
 
-   Outbox.create_message(
-       source='vault',
-       type='outbound_sct_payment',
-       payload={
-           'text': 'Payload needs to be serializable to JSON'
-       }
-   )
-
+    service.create_message(
+        message_source='vault',
+        message_type='outbound_sct_payment',
+        payload={
+            'text': 'Payload needs to be serializable to JSON'
+        }
+    )
 
 This will save the message to database, and also schedule sending the
 message.
 
-Note that for transports it's extremely important that if the transport
-returns success for send_message(), then the message is guaranteed to be
-sent.
+Finally, you need to configure resending, this can be done by adding
+task resend_outbox_messages to your celery periodic tasks config:
 
-Finally, you need to configure resending. There are two ways to do that:
+     'resend_outbox_messages': {
+         'task': 'outbox.tasks.resend_unsent_messages',
+         'schedule': timedelta(seconds=30),
+     }
 
-  1) Add task resend_unsent_messages to your celery periodic tasks config
-  2) Use system's Cron to schedule the resending
 
-The full list of changes to use the Outbox model with HttpTransport are:
+Inbox in detail
+---------------
 
-  1) Include "outbox" in your INSTALLED_APPS
-  2) Pick one of your existing apps, in ready() function configure a transport
-     for a message type you want to handle.
-  3) Configure a cron job or celery task for resending messages.
-  4) Start creating messages!
+There's two changes you need to implement on receiving side
+to start receiving messages:
 
-Inbox model
------------ 
+   1. Add inbox to INSTALLED_APPS, run migrations
+   2. Add inbox urls to your URLS config, for example:
+      url(r'^api/', include('inbox.urls'))
+      This is only needed if you want to receive messages
+      using HTTP.
 
-To use the Inbox model with HttpTransport you will need to do the following
-changes:
+Now you are ready to start receiving messages. For any
+message received, you'll need to configure a handler.
+The best place to do this is in your App.ready() function:
 
-  1) Include "inbox" in your INSTALLED_APPS
-  2) Include inbox.urls in your urls.conf
-  3) Configure a post_save handler for Inbox model (only handle the created case).
-     From the post save handler launch the business logic.
+    from inbox.service import get_inbox_service
+    get_inbox_service().register_handler(
+        'vault', 'payment_executed', handler_accepting_message_as_param
+    )
 
-Done!
+Done, now you have reliable message passing implementation in
+place!
