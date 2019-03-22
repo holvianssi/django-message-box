@@ -24,7 +24,11 @@ class ReceiveMessageSerializer(serializers.ModelSerializer):
         )
 
     def create(self, validated_data):
-        return get_inbox_service().handle_message(validated_data)
+        return get_inbox_service().handle_message(
+            validated_data['uuid'], validated_data['origin_create_time'],
+            validated_data['message_source'], validated_data['message_type'],
+            validated_data['payload'],
+        )
 
 
 class ReceiveMessageView(generics.CreateAPIView):
