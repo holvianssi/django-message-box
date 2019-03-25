@@ -15,7 +15,7 @@ class OutboxService(object):
 
     def create_message(self, message_source, message_type, payload,
                        delay=0):
-        from outbox.tasks import async_send
+        from messagebox.outbox.tasks import async_send
         message = Outbox.objects.create(
             message_source=message_source, message_type=message_type,
             payload=payload,

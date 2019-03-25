@@ -35,7 +35,7 @@ Outbox in detail
 First, you'll need to configure a transport for your messages in app
 ready() handlers. A typical way to configure an Outbox transport is:
 
-    from outbox.service import get_outbox_service
+    from messagebox.outbox import get_outbox_service
     service = get_outbox_service()
     service.register_transport(
         message_type='outbound_sct_payment',
@@ -82,7 +82,7 @@ Now you are ready to start receiving messages. For any
 message received, you'll need to configure a handler.
 The best place to do this is in your App.ready() function:
 
-    from inbox.service import get_inbox_service
+    from messagebox.inbox import get_inbox_service
     get_inbox_service().register_handler(
         'vault', 'payment_executed', handler_accepting_message_as_param
     )
